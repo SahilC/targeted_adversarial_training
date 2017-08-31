@@ -103,12 +103,35 @@ with tf.Graph().as_default():
 
     with tf.train.MonitoredSession(session_creator=session_creator) as sess:
         for filenames, images in load_images(FLAGS.input_dir, batch_shape):
-            target_class_for_batch = (
-                [all_images_taget_class[n] for n in filenames]
-                 + [0] * (FLAGS.batch_size - len(filenames)))
+            target_class_for_batch = ([all_images_taget_class[n] for n in filenames] + [0] * (FLAGS.batch_size - len(filenames)))
             adv_images = sess.run(x_adv,
                                   feed_dict={
                                       x_input: images,
                                       target_class_input: target_class_for_batch
                                   })
             save_images(adv_images, filenames, FLAGS.output_dir)
+
+with tf.Graph().as_default():
+    x_input = tf.placeholder(tf.float32, shape=batch_shape)
+
+    with slim.arg_scope(inception.inception_v3_arg_scope()):
+        _, end_points = inception.inception_v3(x_input, num_classes=num_classes, is_training=False)
+    
+    predicted_labels = tf.argmax(end_points['Predictions'], 1)
+
+    saver = tf.train.Saver(slim.get_model_variables())
+    session_creator = tf.train.ChiefSessionCreator(
+                      scaffold=tf.train.Scaffold(saver=saver),
+                      checkpoint_filename_with_path=FLAGS.checkpoint_path,
+                      master=FLAGS.master)
+    
+    with tf.train.MonitoredSession(session_creator=session_creator) as sess:
+        predicted_classes = sess.run(predicted_labels, feed_dict={x_input: images})
+        predicted_nontargeted_classes = sess.run(predicted_labels, feed_dict={x_input: nontargeted_images})
+        predicted_targeted_classes = sess.run(predicted_labels, feed_dict={x_input: targeted_images})
+
+predicted_classes_names = (pd.DataFrame({"CategoryId": predicted_classes}).merge(categories, on="CategoryId")["CategoryName"].tolist())
+
+predicted_nontargeted_classes_names = (pd.DataFrame({"CategoryId": predicted_nontargeted_classes}).merge(categories, on="CategoryId")["CategoryName"].tolist())
+
+predicted_targeted_classes_names = (pd.DataFrame({"CategoryId": predicted_targeted_classes}).merge(categories, on="CategoryId")["CategoryName"].tolist())
